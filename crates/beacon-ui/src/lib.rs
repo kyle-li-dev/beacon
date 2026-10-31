@@ -35,6 +35,9 @@ mod i18n;
 mod icons;
 mod ingress_links;
 mod job_actions;
+mod local_workbench;
+#[cfg(all(test, feature = "ui-tests"))]
+mod local_workbench_acceptance;
 mod log_workbench;
 mod network;
 mod node_actions;

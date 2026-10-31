@@ -274,7 +274,7 @@ impl ReviewView {
     }
 
     fn column_labels(&self, mode: DiffMode, cx: &App) -> AnyElement {
-        let file = self.preview.manifest.is_string();
+        let file = self.preview.manifest.is_string() && !self.cluster_sources;
         let column = |name: &str, description: &str| {
             h_flex()
                 .flex_1()
