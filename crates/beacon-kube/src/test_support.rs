@@ -37,6 +37,7 @@ pub struct Fixture {
     denied: Arc<Mutex<std::collections::HashSet<String>>>,
     rules: Arc<Mutex<Value>>,
     patch_error: Arc<Mutex<Option<Value>>>,
+    damaged_write_responses: Arc<Mutex<std::collections::HashSet<String>>>,
     list_gates: ListGates,
     events: broadcast::Sender<Value>,
     task: tokio::task::JoinHandle<()>,
@@ -64,6 +65,8 @@ impl Fixture {
         let granted_rules = rules.clone();
         let patch_error = Arc::new(Mutex::new(None));
         let mutation_error = patch_error.clone();
+        let damaged_write_responses = Arc::new(Mutex::new(std::collections::HashSet::new()));
+        let damaged_responses = damaged_write_responses.clone();
         let list_gates = ListGates::default();
         let paging = list_gates.clone();
         let recorded = requests.clone();
@@ -76,7 +79,8 @@ impl Fixture {
                         let Ok((stream,_)) = accepted else { break; };
                         let store = store.clone(); let recorded = recorded.clone(); let changes = changes.clone(); let exec_policy = exec_policy.clone(); let denied_resources = denied_resources.clone(); let granted_rules = granted_rules.clone(); let mutation_error = mutation_error.clone();
                         let paging = paging.clone();
-                        connections.spawn(async move { serve(stream,store,recorded,changes,exec_policy,denied_resources,granted_rules,mutation_error,paging).await; });
+                        let damaged_responses = damaged_responses.clone();
+                        connections.spawn(async move { serve(stream,store,recorded,changes,exec_policy,denied_resources,granted_rules,mutation_error,paging,damaged_responses).await; });
                     }
                     _ = connections.join_next(), if !connections.is_empty() => {}
                 }
@@ -90,6 +94,7 @@ impl Fixture {
             denied,
             rules,
             patch_error,
+            damaged_write_responses,
             list_gates,
             events,
             task,
@@ -110,6 +115,15 @@ impl Fixture {
     }
     pub fn patch_error(&self, error: Option<Value>) {
         *self.patch_error.lock().unwrap() = error;
+    }
+    /// Persist a generic create/patch normally, then damage only its successful
+    /// response. Dry-run, refusal and subsequent GET responses stay intact.
+    pub fn damage_write_response(&self, method: &str, resource: &str, name: &str) {
+        assert!(matches!(method, "POST" | "PATCH"));
+        self.damaged_write_responses
+            .lock()
+            .unwrap()
+            .insert(format!("{method}/{resource}/{name}"));
     }
     pub fn paginate(&self, resource: &str, page_size: usize) -> Arc<ListGate> {
         assert!(page_size > 0);
@@ -243,6 +257,7 @@ async fn serve(
     rules: Arc<Mutex<Value>>,
     patch_error: Arc<Mutex<Option<Value>>>,
     list_gates: ListGates,
+    damaged_write_responses: Arc<Mutex<std::collections::HashSet<String>>>,
 ) {
     let mut header = Vec::new();
     while !header.ends_with(b"\r\n\r\n") {
@@ -326,6 +341,16 @@ async fn serve(
         response(&mut stream, "403 Forbidden", json!({"kind":"Status","apiVersion":"v1","status":"Failure","reason":"Forbidden","message":format!("Fixture refuses {method} {resource}"),"code":403}).to_string(), "application/json").await;
         return;
     }
+    let damage_response = matches!(method, "POST" | "PATCH")
+        && !query.contains_key("dryRun")
+        && name
+            .or_else(|| request.pointer("/metadata/name").and_then(Value::as_str))
+            .is_some_and(|name| {
+                damaged_write_responses
+                    .lock()
+                    .unwrap()
+                    .contains(&format!("{method}/{resource}/{name}"))
+            });
     let kind = match resource {
         "pods" if parts.get(1) == Some(&"metrics.k8s.io") => "PodMetrics",
         "nodes" if parts.get(1) == Some(&"metrics.k8s.io") => "NodeMetrics",
@@ -708,7 +733,11 @@ async fn serve(
         response(
             &mut stream,
             "201 Created",
-            created.to_string(),
+            if damage_response {
+                "{\"saved\":".into()
+            } else {
+                created.to_string()
+            },
             "application/json",
         )
         .await;
@@ -908,7 +937,11 @@ async fn serve(
     response(
         &mut stream,
         "200 OK",
-        object.to_string(),
+        if damage_response {
+            "{\"saved\":".into()
+        } else {
+            object.to_string()
+        },
         "application/json",
     )
     .await;

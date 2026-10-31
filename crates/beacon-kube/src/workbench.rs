@@ -26,6 +26,8 @@ pub enum State {
     Validated,
     Unchanged,
     Succeeded,
+    /// The write may have committed. Reconcile the target before another review.
+    Unknown(String),
     Failed(String),
 }
 struct Document {
@@ -115,7 +117,7 @@ impl Bundle {
         }
         item.state = match submit(&self.session, item, true).await {
             Ok(()) => State::Validated,
-            Err(error) => State::Failed(error),
+            Err(state) => state,
         };
     }
 }
@@ -127,13 +129,13 @@ impl Confirmed {
             }
             item.state = match submit(&self.0.session, item, false).await {
                 Ok(()) => State::Succeeded,
-                Err(error) => State::Failed(error),
+                Err(state) => state,
             };
         }
         Report(self.0)
     }
 }
-async fn submit(session: &Arc<ClusterSession>, item: &Item, dry_run: bool) -> Result<(), String> {
+async fn submit(session: &Arc<ClusterSession>, item: &Item, dry_run: bool) -> Result<(), State> {
     let operation = async {
         let kind = item
             .kind
@@ -178,9 +180,44 @@ async fn submit(session: &Arc<ClusterSession>, item: &Item, dry_run: bool) -> Re
         }
         Ok::<_, crate::Error>(())
     };
-    tokio::time::timeout(std::time::Duration::from_secs(30), operation).await
-        .map_err(|_| "Request timed out. The outcome may be unknown; inspect this resource before preparing another operation.".to_string())?
-        .map_err(|error| error.user_message())
+    match tokio::time::timeout(std::time::Duration::from_secs(30), operation).await {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(error)) => {
+            // A structured client refusal or local preflight error is definitive.
+            // Transport/decoding errors and server timeouts may follow a commit.
+            let uncertain = !dry_run
+                && match &error {
+                    crate::Error::Api(kube::Error::Api(status)) => {
+                        status.code == 408 || !(400..500).contains(&status.code)
+                    }
+                    crate::Error::Api(
+                        kube::Error::BuildRequest(_)
+                        | kube::Error::HttpError(_)
+                        | kube::Error::Auth(_),
+                    ) => false,
+                    crate::Error::Api(_) => true,
+                    _ => false,
+                };
+            let message = error.user_message();
+            Err(if uncertain {
+                unknown_outcome(session, item, &message)
+            } else {
+                State::Failed(message)
+            })
+        }
+        Err(_) if dry_run => Err(State::Failed(
+            "Server dry-run timed out. No resource writes were requested.".into(),
+        )),
+        Err(_) => Err(unknown_outcome(session, item, "Request timed out.")),
+    }
+}
+fn unknown_outcome(session: &ClusterSession, item: &Item, error: &str) -> State {
+    State::Unknown(format!(
+        "{} · {} · {}: the resource may have been saved. Inspect this exact target and reconcile its current state before preparing another operation. Do not blindly retry.\n{error}",
+        session.id().display_name(),
+        session.server(),
+        item.identity,
+    ))
 }
 pub async fn prepare(
     session: Arc<ClusterSession>,

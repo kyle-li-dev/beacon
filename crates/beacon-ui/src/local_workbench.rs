@@ -1,4 +1,7 @@
 //! Local files, Helm values and Kustomize overlays share one immutable review flow.
+#[cfg(all(test, feature = "ui-tests"))]
+mod outcome_tests;
+
 use crate::{bridge::Bridge, scroll::OverflowScrollbars as _, yaml_review};
 use beacon_kube::{
     ClusterSession,
@@ -386,6 +389,7 @@ fn state_label(state: &State) -> String {
         State::Validated => "Server dry-run passed · no write performed".into(),
         State::Unchanged => "Unchanged · skipped".into(),
         State::Succeeded => "Success".into(),
+        State::Unknown(message) => format!("Outcome unknown: {message}"),
         State::Failed(message) => format!("Failed: {message}"),
     }
 }
@@ -402,6 +406,7 @@ impl Render for Workbench {
             .flatten()
             .enumerate()
             .map(|(index, item)| {
+                let outcome = state_label(item.state());
                 v_flex()
                     .gap_1()
                     .p_3()
@@ -421,9 +426,11 @@ impl Render for Workbench {
                     .child(
                         div()
                             .id(("workbench-result", index))
+                            .role(Role::Status)
+                            .aria_label(outcome.clone())
                             .test_support()
                             .text_sm()
-                            .child(state_label(item.state())),
+                            .child(outcome),
                     )
                     .child(
                         h_flex()
