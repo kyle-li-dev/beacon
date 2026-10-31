@@ -47,6 +47,7 @@ pub mod terminal;
 pub mod test_support;
 pub mod transfer;
 pub mod watch;
+pub mod workbench;
 pub mod workflow_ops;
 
 pub use access::Rules;

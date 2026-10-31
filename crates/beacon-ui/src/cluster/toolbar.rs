@@ -216,6 +216,7 @@ impl ClusterView {
                             .child(self.render_column_picker(cx)),
                     )
             })
+            .child(self.render_workbench_action(false, cx))
             .child(self.render_log_action(false, cx))
             .into_any_element()
     }
@@ -281,11 +282,31 @@ impl ClusterView {
                                     .child(view.render_saved_filters(cx))
                                     .child(view.render_column_picker(cx))
                             })
+                            .child(view.render_workbench_action(true, cx))
                             .child(view.render_log_action(true, cx))
                             .into_any_element()
                     })
                     .unwrap_or_else(|_| div().into_any_element())
             })
+    }
+
+    fn render_workbench_action(&self, vertical: bool, cx: &mut Context<Self>) -> Button {
+        Button::new("open-local-workbench")
+            .small()
+            .ghost()
+            .icon(IconName::FolderOpen)
+            .when(vertical, |button| button.label("Local workbench"))
+            .accessibility_label("Local configuration workbench")
+            .tooltip("Open local YAML, Helm chart or Kustomize overlay")
+            .on_click(cx.listener(|view, _, _, cx| {
+                view.toolbar_open = false;
+                crate::local_workbench::open(
+                    view.session.clone(),
+                    view.only_namespace().unwrap_or_else(|| "default".into()),
+                    cx,
+                );
+                cx.notify();
+            }))
     }
 
     fn render_log_action(&self, vertical: bool, cx: &mut Context<Self>) -> impl IntoElement {

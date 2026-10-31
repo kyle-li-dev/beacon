@@ -94,6 +94,7 @@ It uses your existing kubeconfig and cluster permissions, discovering both built
 | **Resource transfer** | Copy or move resources across namespaces or kubeconfig clusters in a separate, three-step window. Review target names, conflicts, dependencies, and masked Secret manifests; create and verify targets before separately confirming source cleanup. Existing targets are never overwritten; persistent data and generated credentials require separate migration. |
 | **Resource comparison** | Choose resources across connected clusters or namespaces and compare them in a separate, read-only diff window. Runtime fields are excluded and Secret values concealed by default. |
 | **Resource export** | Select resources and export one as YAML, or multiple resources as a ZIP containing one YAML per resource. Full manifests are read from the cluster; filenames include kind, namespace and name. A failed read leaves existing destination files intact. |
+| **Local configuration workbench** | Open a local YAML file or directory, including multi-document resources; render a local Helm chart with selected values or a Kustomize overlay. Review each resource's diff, run server dry-run, explicitly confirm, and keep individual success or failure results. |
 | **Resource operations** | Create YAML resources with server validation; review diffs before saving changes. Restart, scale, and delete resources, including bulk Deployment restart and multi-resource deletion with per-target results. Row and right-click menus share resource-specific operations and permission checks. |
 | **ConfigMaps and Secrets** | Search a virtualized key list, edit one value at a time with syntax highlighting, folding, resizable height, and horizontal scrolling. Stage whole key/value deletions and restore them before saving. Secret values start concealed; TLS details include subjects, issuers, validity, algorithms, key strength, extensions, and public keys. |
 | **Metrics** | View Pod / Node / container CPU and memory trends, requests and limits, and restart / OOM markers. Use Kubernetes Metrics API session samples or Prometheus history. |
@@ -193,6 +194,35 @@ Open **Help → Keyboard shortcuts** for the full shortcut list and focus behavi
 
 If the resource changed on the server, your draft stays intact. **Review latest** carries your edits onto the latest resource while preserving fields you did not edit; review the new diff before confirming.
 Choose **Server-Side Apply** when you need field ownership management. Only an actual ownership conflict offers a separate, reviewed force-apply action.
+
+### Local configuration workbench
+
+Open **Local configuration workbench** from a connected resource list's folder button
+(or **Filters and display settings → Local workbench** in a narrow window). Choose a
+YAML file or directory, a local Helm chart and optional values files, or a Kustomize
+overlay directory, then choose the default namespace and **Prepare review**.
+Directory imports scan `.yaml` and `.yml` files recursively. Errors identify the
+source file, document and YAML location; duplicate identities include both sources.
+Resource endpoints and scope come from the connected session's discovery.
+
+Each resource has **Preview / diff** and **Server dry-run** controls. **Dry-run all**
+validates every prepared resource without saving. **Review & apply…** opens the
+final frozen diff and an explicit confirmation for the resources that passed;
+refused and unchanged resources are skipped. Existing resources use UID and
+resource-version checked patches; new resources use create and refuse existing
+names. Results stay visible individually, including partial failures. Successful
+items are never automatically replayed. Closing or cancelling before confirmation
+performs no resource writes.
+
+Preparation pins the session, default namespace and exact desired resources.
+Changing files or values afterward does not change execution; choose another
+source to prepare a fresh review. Helm and Kustomize render with installed local
+CLIs against a private input snapshot and an isolated empty kubeconfig. Rendering
+rejects downloads, remote bases, external file references, symlinks, plugins,
+exec/container functions and external Helm schema references. Keep overlay bases
+inside the selected directory and use a self-contained, unpacked chart. Helm
+values files apply in the displayed order. Missing tools and rendering errors are
+reported before any resource write.
 
 ### ConfigMaps and Secrets
 

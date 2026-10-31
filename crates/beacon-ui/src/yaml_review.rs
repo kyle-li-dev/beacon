@@ -153,6 +153,7 @@ pub(crate) struct ReviewView {
     resolved: bool,
     confirmation_label: Option<String>,
     confirmation_allowed: bool,
+    cluster_sources: bool,
 }
 
 impl EventEmitter<ReviewEvent> for ReviewView {}
@@ -226,6 +227,7 @@ fn open_titled(
             resolved: false,
             confirmation_label: None,
             confirmation_allowed: true,
+            cluster_sources: false,
         }
     });
     let content = review.clone();
@@ -248,6 +250,9 @@ fn open_titled(
 impl ReviewView {
     pub(crate) fn confirmation_label(&mut self, label: &str) {
         self.confirmation_label = Some(label.into());
+    }
+    pub(crate) fn cluster_sources(&mut self) {
+        self.cluster_sources = true;
     }
     pub(crate) fn read_only(&mut self) {
         self.confirmation_allowed = false;
